@@ -6,8 +6,18 @@ DBA Insight Copilot 是一个专为 Oracle DBA 和监控运维人员设计的浏
 
 目前项目处于 MVP 开发阶段。您可以按照以下步骤在您的 Chrome / Edge 浏览器中安装并测试该原型。
 
-### 1. 环境准备
-确保您的电脑上已经安装了 [Node.js](https://nodejs.org/) (推荐 v18 或更高版本)。
+### 1. 获取代码与环境准备
+首先，克隆项目代码到本地，并确保您的电脑上已经安装了 [Node.js](https://nodejs.org/) (推荐 v18 或更高版本)。
+
+```bash
+# 克隆仓库
+git clone https://github.com/ywu0613/dba-insight-copilot.git
+
+# 进入开发目录
+cd dba-insight-copilot
+```
+
+*(注：原 Vite 默认生成的 `app/README.md` 现已整合并删除。)*
 
 ### 2. 编译构建
 如果您在本地进行开发或重新拉取了代码，需要编译生成插件包：
