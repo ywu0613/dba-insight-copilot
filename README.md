@@ -1,4 +1,4 @@
-# DBA Insight Copilot Chrome 插件
+# dba-insight-copilot
 
 DBA Insight Copilot 是一个专为 Oracle DBA 和监控运维人员设计的浏览器侧边栏扩展（Side Panel），用于快速分析、总结 AWR、巡检等 HTML 报告。
 
