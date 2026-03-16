@@ -14,6 +14,7 @@ export const exportToMarkdown = () => {
 2. 检查存储层 IO 延迟 (单块读飙升可能与存储层响应变慢有关...)
 
 > 生成自 DBA Insight Copilot
+> 版权：青学会MOP技术社区
 `;
   
   const blob = new Blob([content], { type: 'text/markdown;charset=utf-8' });

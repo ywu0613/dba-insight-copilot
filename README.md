@@ -2,38 +2,45 @@
 
 DBA Insight Copilot 是一个专为 Oracle DBA 和监控运维人员设计的浏览器侧边栏扩展（Side Panel），用于快速分析、总结 AWR、巡检等 HTML 报告。
 
+当前版本：`V1.01`（技术版本号 `1.0.1`）
+
 ## 本地安装与测试指南
 
-目前项目处于 MVP 开发阶段。您可以按照以下步骤在您的 Chrome / Edge 浏览器中安装并测试该原型。
+目前项目处于 MVP 开发阶段。下面给你 3 种最常用方式，优先看“方式 A / B”。
 
-### 1. 获取代码与环境准备
-首先，克隆项目代码到本地，并确保您的电脑上已经安装了 [Node.js](https://nodejs.org/) (推荐 v18 或更高版本)。
-
-```bash
-# 克隆仓库
-git clone https://github.com/ywu0613/dba-insight-copilot.git
-
-# 进入开发目录
-cd dba-insight-copilot
-```
-
-*(注：原 Vite 默认生成的 `app/README.md` 现已整合并删除。)*
-
-### 2. 编译构建
-如果您在本地进行开发或重新拉取了代码，需要编译生成插件包：
+### 方式 A：已经在仓库目录，直接构建（最短路径）
 
 ```bash
-# 进入项目目录
-cd "app"
-
-# 安装依赖
+cd app
 npm install
-
-# 编译构建扩展包
 npm run build
 ```
 
-构建完成后，在 `app` 目录下会生成一个 `dist` 文件夹，这就是最终要加载到浏览器中的插件目录。
+### 方式 B：clone 后一条命令完成构建（Windows PowerShell）
+
+```powershell
+git clone https://github.com/ywu0613/dba-insight-copilot.git; cd dba-insight-copilot; .\deploy.ps1
+```
+
+如果本机执行策略限制了脚本，可用：
+
+```powershell
+git clone https://github.com/ywu0613/dba-insight-copilot.git; cd dba-insight-copilot; powershell -ExecutionPolicy Bypass -File .\deploy.ps1
+```
+
+### 方式 C：双击一键构建（Windows）
+
+在仓库根目录直接双击 `deploy.bat`，会自动执行：
+1. 进入 `app`
+2. `npm install`
+3. `npm run build`
+
+### 构建结果
+
+构建完成后，在 `app` 目录下会生成 `dist` 文件夹。  
+`app/dist` 就是最终要加载到浏览器的插件目录，不需要额外打包工具。
+
+> 说明：插件图标已使用 PNG（`icon-16/48/128.png`），避免部署流程对 SVG 图标不兼容的问题。
 
 ### 3. 加载到浏览器
 
@@ -52,4 +59,10 @@ npm run build
 ### 4. 使用插件
 1. 安装成功后，您可以把插件固定到浏览器的工具栏。
 2. 点击插件图标，浏览器的右侧便会弹出 **DBA Insight Copilot** 面板。
-3. 您可以随便打开一个本地的 html 文件，点击侧边栏进行测试交互。MVP 版本已模拟了核心分析结论卡片以及导出 Markdown 等功能。
+3. 您可以上传本地 `.html/.txt/.log/.svg` 文件并进行测试交互。MVP 版本已模拟核心分析结论卡片与导出能力。
+4. 当前插件聚焦 Oracle 数据库场景；如果上传文件或提问与 Oracle 无关，会收到委婉提示并引导回 Oracle 主题。
+5. 如需调整 Oracle 识别规则，可在底部点击“关键词设置”维护白名单（本地保存）。
+
+---
+
+版权：青学会MOP技术社区
