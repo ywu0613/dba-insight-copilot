@@ -1,77 +1,37 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import { exportToMarkdown, exportToPDF } from '../utils/export';
+import { analyzeReport } from '../services/llm';
+import type { AnalysisResult, LLMSettings } from '../types/analysis';
 
 const ORACLE_KEYWORDS_STORAGE_KEY = 'oracle_keywords_whitelist_v1';
 
 const DEFAULT_ORACLE_KEYWORDS = [
-  'oracle',
-  'awr',
-  'ash',
-  'sql',
-  'sql_id',
-  'db time',
-  'db cpu',
-  'wait event',
-  'tablespace',
-  'undo',
-  'redo',
-  'pga',
-  'sga',
-  'rac',
-  'dataguard',
-  '执行计划',
-  '表空间',
-  '慢sql',
-  '锁等待',
-  '巡检',
-  '归档',
-  '实例'
+  'oracle', 'awr', 'ash', 'sql', 'sql_id', 'db time', 'db cpu', 'wait event',
+  'tablespace', 'undo', 'redo', 'pga', 'sga', 'rac', 'dataguard', '执行计划',
+  '表空间', '慢sql', '锁等待', '巡检', '归档', '实例'
 ];
 
-const POLITE_ORACLE_ONLY_REPLY =
-  '感谢你的输入。当前插件聚焦 Oracle 数据库场景（AWR/ASH/巡检/SQL 分析）。如果你愿意，我可以继续帮你分析 Oracle 相关内容。';
+interface BottomBarProps {
+  onResultGenerated: (result: AnalysisResult) => void;
+  settings: LLMSettings;
+  onLoadingChange: (loading: boolean) => void;
+}
 
-const normalizeKeywords = (keywords: string[]): string[] => {
-  const normalized = keywords.map((keyword) => keyword.trim().toLowerCase()).filter(Boolean);
-  return Array.from(new Set(normalized));
-};
-
-const parseKeywordsInput = (input: string): string[] => {
-  return normalizeKeywords(input.split(/[\n,，;；]/g));
-};
-
-const loadOracleKeywords = (): string[] => {
-  try {
-    const raw = window.localStorage.getItem(ORACLE_KEYWORDS_STORAGE_KEY);
-    if (!raw) {
-      return DEFAULT_ORACLE_KEYWORDS;
-    }
-
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) {
-      return DEFAULT_ORACLE_KEYWORDS;
-    }
-
-    const normalized = normalizeKeywords(parsed);
-    return normalized.length > 0 ? normalized : DEFAULT_ORACLE_KEYWORDS;
-  } catch {
-    return DEFAULT_ORACLE_KEYWORDS;
-  }
-};
-
-const isOracleRelated = (text: string, keywords: string[]): boolean => {
-  const normalizedText = text.toLowerCase();
-  return keywords.some((keyword) => normalizedText.includes(keyword));
-};
-
-const BottomBar: React.FC = () => {
+const BottomBar: React.FC<BottomBarProps> = ({ onResultGenerated, settings, onLoadingChange }) => {
   const [question, setQuestion] = useState('');
   const [assistantReply, setAssistantReply] = useState('');
   const [uploadedFileName, setUploadedFileName] = useState('');
-  const [oracleKeywords, setOracleKeywords] = useState<string[]>(() => loadOracleKeywords());
+  const [fileContent, setFileContent] = useState('');
+  const [oracleKeywords, setOracleKeywords] = useState<string[]>(() => {
+    try {
+      const raw = window.localStorage.getItem(ORACLE_KEYWORDS_STORAGE_KEY);
+      return raw ? JSON.parse(raw) : DEFAULT_ORACLE_KEYWORDS;
+    } catch {
+      return DEFAULT_ORACLE_KEYWORDS;
+    }
+  });
   const [showKeywordSettings, setShowKeywordSettings] = useState(false);
-  const [keywordEditorValue, setKeywordEditorValue] = useState('');
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
@@ -83,12 +43,10 @@ const BottomBar: React.FC = () => {
       exportToMarkdown();
       return;
     }
-
     if (action === '导出 PDF') {
       exportToPDF();
       return;
     }
-
     alert(`快捷操作: ${action}`);
   };
 
@@ -96,71 +54,55 @@ const BottomBar: React.FC = () => {
     fileInputRef.current?.click();
   };
 
-  const handleOpenKeywordSettings = () => {
-    setKeywordEditorValue(oracleKeywords.join('\n'));
-    setShowKeywordSettings(true);
-  };
-
-  const handleSaveKeywordSettings = () => {
-    const parsedKeywords = parseKeywordsInput(keywordEditorValue);
-    if (parsedKeywords.length === 0) {
-      setAssistantReply('关键词至少保留 1 个，请调整后再保存。');
-      return;
-    }
-
-    setOracleKeywords(parsedKeywords);
-    setAssistantReply(`Oracle 关键词已更新（${parsedKeywords.length} 个）。`);
-    setShowKeywordSettings(false);
-  };
-
-  const handleResetKeywordSettings = () => {
-    setOracleKeywords(DEFAULT_ORACLE_KEYWORDS);
-    setKeywordEditorValue(DEFAULT_ORACLE_KEYWORDS.join('\n'));
-    setAssistantReply('已恢复默认 Oracle 关键词。');
-  };
-
   const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     event.target.value = '';
-    if (!file) {
-      return;
-    }
+    if (!file) return;
 
     setUploadedFileName(file.name);
-
     const lowerName = file.name.toLowerCase();
     const allowedExtensions = ['.html', '.htm', '.txt', '.log', '.svg'];
-    const isAllowed = allowedExtensions.some((ext) => lowerName.endsWith(ext));
-    if (!isAllowed) {
+    if (!allowedExtensions.some(ext => lowerName.endsWith(ext))) {
       setAssistantReply('当前仅支持上传 HTML/TXT/LOG/SVG 文件。');
       return;
     }
 
     try {
       const rawText = await file.text();
-      const sampleText = `${file.name}\n${rawText.slice(0, 200000)}`;
-      if (!isOracleRelated(sampleText, oracleKeywords)) {
-        setAssistantReply(POLITE_ORACLE_ONLY_REPLY);
-        return;
-      }
-
-      setAssistantReply(`已接收文件《${file.name}》，将按 Oracle 数据库场景继续分析。`);
+      setFileContent(rawText);
+      setAssistantReply(`已接收文件《${file.name}》，请点击“开始分析”按钮。`);
     } catch {
       setAssistantReply('文件读取失败，请重试。');
     }
   };
 
+  const handleStartAnalysis = async () => {
+    if (!fileContent) {
+      setAssistantReply('请先上传报告文件。');
+      return;
+    }
+
+    if (!settings.apiKey) {
+      setAssistantReply('请先在顶部设置按钮 (⚙️) 中配置 LLM API Key。');
+      return;
+    }
+
+    onLoadingChange(true);
+    setAssistantReply('正在通过 AI 分析报告，请稍候...');
+    try {
+      const result = await analyzeReport(fileContent, settings, uploadedFileName);
+      onResultGenerated(result);
+      setAssistantReply(`分析完成！报告：${uploadedFileName}`);
+    } catch (err: any) {
+      setAssistantReply(`分析失败: ${err.message}`);
+    } finally {
+      onLoadingChange(false);
+    }
+  };
+
   const handleSendQuestion = () => {
     const trimmedQuestion = question.trim();
-    if (!trimmedQuestion) {
-      return;
-    }
-
-    if (!isOracleRelated(trimmedQuestion, oracleKeywords)) {
-      setAssistantReply(POLITE_ORACLE_ONLY_REPLY);
-      return;
-    }
-
+    if (!trimmedQuestion) return;
     setAssistantReply(`已收到你的 Oracle 问题：${trimmedQuestion}`);
     setQuestion('');
   };
@@ -173,14 +115,8 @@ const BottomBar: React.FC = () => {
             key={action}
             onClick={() => handleShortcutClick(action)}
             style={{
-              background: 'var(--border-sub)',
-              border: 'none',
-              color: 'var(--text-body)',
-              borderRadius: '999px',
-              padding: '4px 10px',
-              fontSize: '11px',
-              flexShrink: 0,
-              cursor: 'pointer'
+              background: 'var(--border-sub)', border: 'none', color: 'var(--text-body)',
+              borderRadius: '999px', padding: '4px 10px', fontSize: '11px', flexShrink: 0, cursor: 'pointer'
             }}
           >
             {action}
@@ -192,187 +128,82 @@ const BottomBar: React.FC = () => {
         <button
           onClick={handleUploadClick}
           style={{
-            background: 'transparent',
-            border: '1px solid var(--border-sub)',
-            color: 'var(--text-body)',
-            borderRadius: '4px',
-            padding: '6px 10px',
-            fontSize: '12px',
-            cursor: 'pointer',
-            whiteSpace: 'nowrap'
+            background: 'transparent', border: '1px solid var(--border-sub)', color: 'var(--text-body)',
+            borderRadius: '4px', padding: '6px 10px', fontSize: '12px', cursor: 'pointer', whiteSpace: 'nowrap'
           }}
         >
           上传文件
         </button>
+        
+        {uploadedFileName && (
+          <button
+            onClick={handleStartAnalysis}
+            style={{
+              background: 'var(--color-primary)', border: 'none', color: 'white',
+              borderRadius: '4px', padding: '6px 12px', fontSize: '12px', cursor: 'pointer', fontWeight: 600, whiteSpace: 'nowrap'
+            }}
+          >
+            开始分析
+          </button>
+        )}
+
         <button
-          onClick={handleOpenKeywordSettings}
+          onClick={() => setShowKeywordSettings(true)}
           style={{
-            background: 'transparent',
-            border: '1px solid var(--border-sub)',
-            color: 'var(--text-body)',
-            borderRadius: '4px',
-            padding: '6px 10px',
-            fontSize: '12px',
-            cursor: 'pointer',
-            whiteSpace: 'nowrap'
+            background: 'transparent', border: '1px solid var(--border-sub)', color: 'var(--text-body)',
+            borderRadius: '4px', padding: '6px 10px', fontSize: '12px', cursor: 'pointer', whiteSpace: 'nowrap'
           }}
         >
-          关键词设置
+          白名单
         </button>
+
         <input
-          ref={fileInputRef}
-          type="file"
-          accept=".html,.htm,.txt,.log,.svg,image/svg+xml,text/html,text/plain"
+          ref={fileInputRef} type="file"
+          accept=".html,.htm,.txt,.log,.svg"
           onChange={handleFileUpload}
           style={{ display: 'none' }}
         />
         <div
           style={{
-            fontSize: '11px',
-            color: 'var(--text-muted)',
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            whiteSpace: 'nowrap',
-            flex: 1
+            fontSize: '11px', color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap', flex: 1
           }}
           title={uploadedFileName}
         >
-          {uploadedFileName || `支持 .html / .txt / .log / .svg（关键词 ${oracleKeywords.length} 个）`}
+          {uploadedFileName || '支持 .html / .txt / .log / .svg'}
         </div>
       </div>
 
-      {showKeywordSettings ? (
-        <div
-          style={{
-            marginBottom: '8px',
-            border: '1px solid var(--border-main)',
-            borderRadius: '6px',
-            padding: '8px',
-            background: 'var(--bg-page)'
-          }}
-        >
-          <div style={{ fontSize: '12px', color: 'var(--text-body)', marginBottom: '6px' }}>
-            Oracle 白名单关键词（每行一个，或用逗号分隔）
-          </div>
+      {showKeywordSettings && (
+        <div style={{ marginBottom: '8px', border: '1px solid var(--border-main)', borderRadius: '6px', padding: '8px', background: 'var(--bg-page)' }}>
           <textarea
-            value={keywordEditorValue}
-            onChange={(event) => setKeywordEditorValue(event.target.value)}
+            value={oracleKeywords.join('\n')}
+            onChange={(e) => setOracleKeywords(e.target.value.split('\n'))}
             rows={5}
-            style={{
-              width: '100%',
-              resize: 'vertical',
-              background: 'var(--bg-page)',
-              border: '1px solid var(--border-main)',
-              color: 'var(--text-body)',
-              borderRadius: '4px',
-              padding: '6px 8px',
-              fontSize: '12px',
-              outline: 'none'
-            }}
+            style={{ width: '100%', background: 'var(--bg-page)', border: '1px solid var(--border-main)', color: 'var(--text-body)', borderRadius: '4px', padding: '6px 8px', fontSize: '12px' }}
           />
-          <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
-            <button
-              onClick={handleSaveKeywordSettings}
-              style={{
-                background: 'var(--color-primary)',
-                border: 'none',
-                color: 'white',
-                borderRadius: '4px',
-                padding: '6px 10px',
-                fontSize: '12px',
-                cursor: 'pointer'
-              }}
-            >
-              保存
-            </button>
-            <button
-              onClick={handleResetKeywordSettings}
-              style={{
-                background: 'transparent',
-                border: '1px solid var(--border-sub)',
-                color: 'var(--text-body)',
-                borderRadius: '4px',
-                padding: '6px 10px',
-                fontSize: '12px',
-                cursor: 'pointer'
-              }}
-            >
-              恢复默认
-            </button>
-            <button
-              onClick={() => setShowKeywordSettings(false)}
-              style={{
-                background: 'transparent',
-                border: '1px solid var(--border-sub)',
-                color: 'var(--text-body)',
-                borderRadius: '4px',
-                padding: '6px 10px',
-                fontSize: '12px',
-                cursor: 'pointer'
-              }}
-            >
-              取消
-            </button>
-          </div>
+          <button onClick={() => setShowKeywordSettings(false)} style={{ marginTop: '8px', background: 'var(--color-primary)', border: 'none', color: 'white', padding: '4px 8px', borderRadius: '4px', cursor: 'pointer' }}>关闭</button>
         </div>
-      ) : null}
+      )}
 
-      {assistantReply ? (
-        <div
-          style={{
-            marginBottom: '8px',
-            border: '1px solid var(--border-main)',
-            borderRadius: '6px',
-            padding: '6px 8px',
-            fontSize: '12px',
-            color: 'var(--text-body)',
-            background: 'rgba(37, 99, 235, 0.08)'
-          }}
-        >
+      {assistantReply && (
+        <div style={{ marginBottom: '8px', border: '1px solid var(--border-main)', borderRadius: '6px', padding: '6px 8px', fontSize: '12px', color: 'var(--text-body)', background: 'rgba(37, 99, 235, 0.08)' }}>
           {assistantReply}
         </div>
-      ) : null}
+      )}
 
       <div style={{ display: 'flex', gap: '8px' }}>
         <input
-          type="text"
-          value={question}
-          onChange={(event) => setQuestion(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter') {
-              handleSendQuestion();
-            }
-          }}
+          type="text" value={question}
+          onChange={(e) => setQuestion(e.target.value)}
           placeholder="追问分析结果..."
-          style={{
-            flex: 1,
-            background: 'var(--bg-page)',
-            border: '1px solid var(--border-main)',
-            color: 'var(--text-body)',
-            borderRadius: '4px',
-            padding: '6px 8px',
-            fontSize: '12px',
-            outline: 'none'
-          }}
+          style={{ flex: 1, background: 'var(--bg-page)', border: '1px solid var(--border-main)', color: 'var(--text-body)', borderRadius: '4px', padding: '6px 8px', fontSize: '12px', outline: 'none' }}
         />
-        <button
-          onClick={handleSendQuestion}
-          style={{
-            background: 'var(--color-primary)',
-            border: 'none',
-            color: 'white',
-            borderRadius: '4px',
-            padding: '6px 12px',
-            fontSize: '12px',
-            cursor: 'pointer'
-          }}
-        >
-          发送
-        </button>
+        <button onClick={handleSendQuestion} style={{ background: 'var(--color-primary)', border: 'none', color: 'white', borderRadius: '4px', padding: '6px 12px', fontSize: '12px', cursor: 'pointer' }}>发送</button>
       </div>
-
-      <div style={{ marginTop: '8px', fontSize: '11px', color: 'var(--text-muted)', textAlign: 'right' }}>
-        © 青学会MOP技术社区
+      <div style={{ marginTop: '8px', display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: 'var(--text-muted)' }}>
+        <div>v1.0.2</div>
+        <div>© 青学会MOP技术社区</div>
       </div>
     </div>
   );
